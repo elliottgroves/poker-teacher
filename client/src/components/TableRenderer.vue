@@ -15,6 +15,11 @@
 	    <polygon class="tablepoly" :points="tablepolyPoints"/>
 	  </svg>
 	  <div class="board">
+	  	<div class="cards">
+	  		<div v-for="(card, $index) in gameState.board" :class="{ 'not-empty' : card !== null }" class="card">
+	      	<span v-if="card" :class="{ 'red-card' : card.suit === 'diamonds' || card.suit === 'hearts' }">{{ cardDisplay(card) }}</span>
+	    	</div>
+	  	</div>
 	  	<div class="pot">
 		  	<div class="pot-icon"></div>
 		  	<span>{{ gameState.pot }}</span>
@@ -43,7 +48,45 @@ export default {
 			type: Object,
 			default: () => { pot: 0 },
 		},
-	}
+	},
+	methods: {
+		cardDisplay(card) {
+			if(card === null) { return; }
+      let suit;
+      switch(card.suit) {
+        case 'diamonds':
+          suit = '♦';
+          break;
+          case 'hearts':
+          suit = '♥';
+          break;
+          case 'spades':
+          suit = '♠';
+          break;
+          case 'clubs':
+          suit = '♣';
+          break;
+      }
+      let value;
+      switch(card.value) {
+        case 11:
+          value = 'J';
+          break;
+        case 12:
+          value = 'Q';
+          break;
+        case 13:
+          value = 'K';
+          break;
+        case 14:
+          value = 'A';
+          break;
+        default:
+          value = card.value;
+      }
+      return `${value}${suit}`;
+    },
+	},
 }
 </script>
 
@@ -61,6 +104,28 @@ export default {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-direction: column;
+		.cards {
+			display: flex;
+			margin-bottom: 20px;
+			.card {
+	      height: 70px;
+	      width: 49px;
+	      border-radius: 6px;
+	      font-size: 1.4em;
+	      display: flex;
+	      align-items: center;
+	      justify-content: center;
+	      padding-bottom: 26px;
+	      &.not-empty {
+					background: white;
+	      	border: 1px solid black;
+	      }
+	      .red-card {
+	        color: red;
+	      }
+	    }
+		}
 		.pot {
 			display: flex;
 			font-size: 2em;

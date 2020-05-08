@@ -1,6 +1,18 @@
 <template>
   <div class="parent-container">
-    <div class="navbar"></div>
+    <v-toolbar absolute width="100%" color="#444" class="navbar">
+      <img class="logo" src="/favicon.png" />
+      <v-toolbar-title><h1>Poker Teacher</h1></v-toolbar-title>
+      <v-spacer></v-spacer>
+      <v-toolbar-items>
+        <v-btn @click="winnerDebug">Winner</v-btn>
+        <v-btn @click="flopDebug">Board</v-btn>
+        <v-btn @click="nextActionDebug">Debug</v-btn>
+        <v-fade-transition>
+          <v-btn v-if="!gameState.started" @click="startGame">Start Game</v-btn>
+        </v-fade-transition>
+      </v-toolbar-items>
+    </v-toolbar>
     <div class="table">
       <table-renderer :width="tableSizeX"
                       :height="tableSizeY"
@@ -18,15 +30,17 @@
           <div v-else-if="seat !== null">
             <div class="d-flex justify-center">
               <v-slide-y-transition group class="d-flex">
+                <!-- :class="{ 'hidden' : self.id !== seat.id, 'folded' : seat.folded }" -->
                 <div v-for="(card, $index) in seat.hand"
                      class="card"
-                     :class="{ 'hidden' : self.id !== seat.id }"
+                     
                      :key="$index">
-                  <span v-if="self.id === seat.id" :class="{ 'red-card' : card.suit === 'diamonds' || card.suit === 'hearts' }">{{ cardDisplay(card) }}</span>
+                      <!-- v-if="self.id === seat.id" -->
+                  <span :class="{ 'red-card' : card.suit === 'diamonds' || card.suit === 'hearts' }">{{ cardDisplay(card) }}</span>
                 </div>
               </v-slide-y-transition>
             </div>
-            <div class="stack d-flex align-center flex-column">
+            <div :class="{ 'active' : seat.active, 'folded' : seat.folded }" class="stack d-flex align-center flex-column">
               <span>{{ seat.name }}</span>
               <div class="d-flex align-center">
                 <div class="stack-icon"></div>
@@ -35,10 +49,13 @@
                 </v-slide-y-transition>
               </div>
             </div>
+            <div v-if="seat.dealer" class="dealer-chip">
+              <div class="chip">D</div>
+            </div>
           </div>
         </div>
         <v-slide-y-transition>
-          <div v-if="joining" class="table--seats--join">
+          <div v-if="joining" @keyup.enter="join" class="table--seats--join">
             <p class="overline">Enter a name and a stack size to join</p>
             <v-text-field v-model="name"
                           placeholder="Name"
@@ -67,18 +84,42 @@
         </v-slide-y-transition>
       </div>
     </div>
-    <div class="ui">
-      <div class="ui-spacer"></div>
-      <v-btn @click="fold" color="red" x-large class="white--text mr-2 ml-4">Fold</v-btn>
-      <v-btn @click="placeBet" color="blue" x-large class="white--text mr-4">Bet</v-btn>
-      <div class="bet">
-        <span>{{ bet }}</span>
-        <v-btn outlined class="mx-2">Min</v-btn>
-        <v-btn outlined class="mr-2">1/2 pot</v-btn>
-        <v-btn outlined class="mr-2">All in</v-btn>
-        <v-slider v-model="bet" thumb-label="always" hide-details :max="self.stack"></v-slider>
-      </div>
-    </div>
+    <v-slide-y-transition group mode="out-in">
+      <div v-if="!playing" class="ui" key="spectating"></div>
+      <v-fade-transition group key="ingame" mode="out-in">
+        <div v-if="playing && !self.active" class="ui" key="waiting">
+          <v-btn @click="toggleQueueFold"
+                 :color="queueingFold ? 'red' : 'red lighten-3'" 
+                 x-large
+                 class="white--text">
+            <v-icon class="mr-2 ml-0">{{ queueingFold ? 'check_box' : 'check_box_outline_blank' }}</v-icon>{{ foldQueueLabel }}
+          </v-btn>
+        </div>
+        <div v-if="playing && self.active" class="ui" key="playing">
+          <div class="ui-spacer"></div>
+          <v-btn @click="fold" color="red" x-large class="white--text mr-2 ml-4">Fold</v-btn>
+          <v-btn @click="check" color="yellow darken-2" x-large class="white--text mr-2">Check</v-btn>
+          <v-btn @click="placeBet" color="green" x-large class="white--text mr-4">Bet</v-btn>
+          <div class="bet">
+            <span class="mr-5">{{ bet }}</span>
+            <div class="d-flex flex-column">
+              <v-slider v-model="bet"
+                        thumb-label="always"
+                        color="green"
+                        hide-details
+                        :min="gameState.bigBlind"
+                        :max="self.stack"></v-slider>
+              <div class="d-flex">
+                <v-btn class="mx-2">2 Big Blinds</v-btn>
+                <v-btn class="mr-2">1/2 pot</v-btn>
+                <v-btn class="mr-2">Pot</v-btn>
+                <v-btn class="mr-2">All in</v-btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      </v-fade-transition>
+    </v-slide-y-transition>
   </div>
 </template>
 
@@ -102,6 +143,7 @@ export default {
     tableSizeY: 400,
     playing: false,
     bet: 0,
+    queueingFold: false,
   }),
   computed: {
     tablepolyPoints() {
@@ -132,8 +174,32 @@ export default {
       }
       return this.table.seats[this.sittingAt];
     },
+    minBet() {
+      const highestOtherBet = 0;
+      return highestOtherBet > this.gameState.bigBlind ?
+        highestOtherBet * 2 : 
+        this.gameState.bigBlind * 2;
+    },
+    active() {
+      return this.self.active;
+    },
+    foldQueueLabel() {
+      return this.self.bet === this.gameState.bigBlind ? 'Check/Fold' : 'Fold';
+    },
   },
   methods: {
+    winnerDebug() {
+      this.socket.emit('winner-debug');
+    },
+    flopDebug() {
+      this.socket.emit('flop-debug');
+    },
+    startGame() {
+      this.socket.emit('start');
+    },
+    nextActionDebug() {
+      this.socket.emit('next-debug');
+    },
     seatStyle(index) {
       return { transform: `translateX(${this.tableCoords[index].x - (this.tableSizeX / 2)}px) translateY(${this.tableCoords[index].y - (this.tableSizeY / 2)}px)` };
     },
@@ -148,10 +214,16 @@ export default {
       this.playing = true;
       this.socket.emit('sit', this.sittingAt, this.name, this.stack);
     },
-    placeBet() {
-
+    toggleQueueFold() {
+      this.queueingFold = !this.queueingFold;
     },
     fold() {
+      this.socket.emit('fold', this.self.id);
+    },
+    check() {
+
+    },
+    placeBet() {
 
     },
     cardDisplay(card) {
@@ -170,11 +242,36 @@ export default {
           suit = '♣';
           break;
       }
-      return `${card.value}${suit}`;
+      let value;
+      switch(card.value) {
+        case 11:
+          value = 'J';
+          break;
+        case 12:
+          value = 'Q';
+          break;
+        case 13:
+          value = 'K';
+          break;
+        case 14:
+          value = 'A';
+          break;
+        default:
+          value = card.value;
+      }
+      return `${value}${suit}`;
     },
   },
   created() {
     this.socket = io('http://localhost:3000');
+  },
+  watch: {
+    active() {
+      if(this.queueingFold) {
+        this.fold();
+        this.queueingFold = false;
+      }
+    }
   },
   mounted() {
     this.socket.on('update', (data) => {
@@ -194,9 +291,15 @@ export default {
   height: 100%;
   width: 100%;
   .navbar {
-    height: 60px;
-    width: 100%;
-    background: #444;
+    .logo {
+      margin-left: 10px;
+      width: 40px;
+      border-radius: 100%;
+    }
+    h1 {
+      color: #ddd;
+      margin-left: 15px;
+    }
   }
   .table {
     position: relative;
@@ -217,6 +320,7 @@ export default {
         background: #fff;
         padding: 15px;
         border-radius: 10px;
+        z-index: 10;
       }
       .table--seats--seat {
         position: absolute;
@@ -230,11 +334,14 @@ export default {
           display: flex;
           align-items: center;
           justify-content: center;
-          padding-bottom: 18px;
+          padding-bottom: 26px;
           transition: background 0.2s ease;
           &.hidden {
             background: red;
             border: 3px solid #fff;
+          }
+          &.folded {
+            background: #999;
           }
           .red-card {
             color: red;
@@ -247,6 +354,15 @@ export default {
           background: #fff;
           border-radius: 6px;
           margin-top: 10px;
+          transition: background 0.2s ease, color 0.2s ease;
+          &.folded {
+            background: #999;
+            color: white;
+          }
+          &.active {
+            background: rgb(100,100,255);
+            color: white;
+          }
           span {
             font-size: 1.2em;
           }
@@ -257,6 +373,22 @@ export default {
             height: 12px;
             border: 1px solid #ddd;
             margin-right: 4px;
+          }
+        }
+        .dealer-chip {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transform: translateY(20px);
+          .chip {
+            border: 1px solid #fff;
+            height: 24px;
+            width: 28px;
+            background: red;
+            border-radius: 100%;
+            color: #fff;
+            text-align: center;
           }
         }
       }
@@ -278,7 +410,7 @@ export default {
       width: 600px;
       span {
         text-align: center;
-        font-size: 2.3em;
+        font-size: 2.6em;
         width: 60px;
       }
     }
