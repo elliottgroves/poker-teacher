@@ -1,6 +1,7 @@
 const Express = require('express')();
 const Http = require('http').Server(Express);
 const Socketio = require('socket.io')(Http);
+const _ = require('lodash');
 
 var table = {
 	pot: 0,
@@ -208,6 +209,111 @@ const addCardToBoard = (position) => {
   gameState.board[position] = deck.splice(Math.floor(Math.random() * deck.length), 1)[0];
 }
 
-const checkWiner = () => {
+const checkWinner = (hands) => {
+  // const hands = gameState.playersInGame.map(p => ({ id: p.id, hand: p.hand.concat(gameState.board) }));
+  const evaluated = hands.map(h => ({ id: h.id, strength: checkHand(h.hand) }));
+  const ranked = _.sortBy(evaluated, ['strength.strength', 'strength.modifier']).reverse();
+  const candidates = ranked.filter(h => h.strength.strength === ranked[0].strength.strength);
+  const winnerId = _.sortBy(candidates.map(h => ({ id: h.id, restOfCards: h.strength.restOfCards.map(c => c.value)})), 'restOfCards').reverse()[0].id;
+  console.log(ranked);
+}
+
+const checkHand = (hand) => {
+  // check royal (9), straight (8), and regular (5) flushes
+  const flush = checkFlush(hand);
+  if(flush) { return flush; }
+
+  // check straights (4)
+  const straight = checkStraight(hand);
+  if(straight) { return straight; }
+
+  // check quads (7), full houses (6), trips (3), two pair (2), one pair (1)
+  const group = checkGroups(hand);
+  if(group) { return group; }
+
+  // return high card
+  const sortedHighCard = _.sortBy(hand, ['value']).reverse();
+  return { strength: 0, modifier: sortedHighCard[0].value, restOfCards: sortedHighCard.slice(1) };
+}
+
+const checkFlush = (cards) => {
+  let groups = [];
+  const groupsObject = _.groupBy(cards, 'suit');
+  const keys = Object.keys(groupsObject);
+  keys.forEach(k => {
+    groups.push(groupsObject[k]);
+  });
+  if(groups.filter(g => g.length >= 5).length > 0) {
+    const cardsInFlush = cards.filter(c => c.suit === groups.filter(g => g.length >= 5)[0][0].suit);
+    const sorted = cardsInFlush.map(c => c.value).sort().reverse();
+    return { strength: 4, modifier: sorted[0], restOfCards: null };
+  }
+}
+
+const checkStraight = (cards) => {
   
 }
+
+const checkGroups = (cards) => {
+  let groups = [];
+  const groupsObject = _.groupBy(cards, 'value');
+  const keys = Object.keys(groupsObject);
+  keys.forEach(k => {
+    groups.push(groupsObject[k]);
+  });
+
+  // Returns values of groups sorted high to low
+  const quads = groups.filter(g => g.length === 4).map(g => g[0].value);
+  const trips = groups.filter(g => g.length === 3).map(g => g[0].value).sort().reverse();
+  const pairs = groups.filter(g => g.length === 2).map(g => g[0].value).sort().reverse();
+
+  if(quads.length > 0) {
+    const restOfCards = cards.filter(c => c.value !== quads[0]).sort().reverse();
+    return { strength: 7, modifier: quads[0], restOfCards };
+  } else if(trips.length > 0) {
+    // full house
+    if(pairs.length > 0) {
+      const restOfCards = cards.filter(c => c.value !== trips[0] && c.value !== pairs[0]).sort().reverse();
+      return { strength: 6, modifier: trips[0], restOfCards };
+    }
+    // trips
+    const restOfCards = cards.filter(c => c.value !== trips[0]).sort().reverse();
+    return { strength: 3, modifier: trips[0], restOfCards };
+  } else if(pairs.length > 0) {
+    // two pair
+    if(pairs.length >= 2) {
+      const restOfCards = cards.filter(c => c.value !== pairs[0]).sort().reverse();
+      return { strength: 2, modifier: pairs[0], restOfCards };
+    }
+    // pair
+    const restOfCards = cards.filter(c => c.value !== pairs[0]).sort().reverse();
+    return { strength: 1, modifier: pairs[0], restOfCards };
+  }
+}
+
+const royalFlush = [[14, 'c'], [13, 'c'], [12, 'c'], [11, 'c'], [10, 'c'], [8, 'h'], [10, 's']];
+const straightFlush = [[2, 'c'], [3, 'c'], [4, 'c'], [6, 'c'], [5, 'c'], [8, 'h'], [10, 's']];
+const quads = [[12, 'd'], [12, 'h'], [12, 'c'], [12, 's'], [3, 'd'], [4, 'd'], [7, 'd']];
+const fullHouse = [[10, 'd'], [10, 'h'], [10, 'c'], [9, 'd'], [9, 'c'], [4, 'h'], [4, 'c']];
+const flush = [[2, 'c'], [3, 'c'], [4, 'c'], [6, 'c'], [7, 'c'], [8, 'h'], [10, 's']];
+const straight = [[2, 'c'], [3, 'c'], [4, 'c'], [6, 'c'], [5, 'h'], [8, 'h'], [10, 's']];
+const trips = [[12, 'd'], [12, 'h'], [12, 'c'], [10, 's'], [3, 'd'], [4, 'd'], [7, 'd']];
+const twoPair = [[12, 'd'], [12, 'h'], [10, 'c'], [10, 's'], [2, 'd'], [4, 'd'], [7, 'd']];
+const twoPairLower =  [[12, 'd'], [12, 'h'], [10, 'c'], [10, 's'], [2, 'd'], [4, 'd'], [6, 'd']];
+const pair = [[12, 'd'], [12, 'h'], [11, 'c'], [10, 's'], [3, 'd'], [4, 'd'], [7, 'd']];
+const pairLower = [[12, 'd'], [12, 'h'], [11, 'c'], [10, 's'], [2, 'd'], [4, 'd'], [7, 'd']];
+const highCard = [[2, 'c'], [3, 'c'], [4, 'c'], [6, 'c'], [7, 'h'], [8, 'h'], [10, 's']];
+
+const exampleHands = [
+  { id: 1, hand: highCard.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 2, hand: twoPairLower.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 3, hand: twoPair.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 4, hand: trips.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 5, hand: quads.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 6, hand: fullHouse.map(c => ({ value: c[0], suit: c[1] })) },
+  { id: 7, hand: flush.map(c => ({ value: c[0], suit: c[1] })) },
+];
+
+checkWinner(exampleHands);
+
+// checkHand(exampleHands[0].hand);
